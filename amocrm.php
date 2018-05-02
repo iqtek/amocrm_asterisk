@@ -1,69 +1,138 @@
 <?php
-/*
-	amoCRM to  asterisk integration.
-	QSOFT LLC,  All rights reserved.
-	mailto:      support@amocrm.com.
-	Date:   10.04.2012   rev: 102703
-	Cannot be redistributed  without
-	     a written permission.
-                         _____ _____  __  __
-                        / ____|  __ \|  \/  |
-   __ _ _ __ ___   ___ | |    | |__) | \  / |
-  / _` | '_ ` _ \ / _ \| |    |  _  /| |\/| |
- | (_| | | | | | | (_) | |____| | \ \| |  | |_
-  \__,_|_| |_| |_|\___/ \_____|_|  \_\_|  |_(_)
+
+include dirname(__FILE__)."/config/config.php";
+include dirname(__FILE__)."/include/functions.cdr.php";
+include dirname(__FILE__)."/include/functions.astman.php";
+include dirname(__FILE__)."/include/functions.file.php";
 
 
-
- */
-ini_set('display_errors',0);
-define('AC_HOST','localhost');
-define('AC_PORT',8088);
-define('AC_PREFIX','/asterisk/');
-define('AC_TLS',false);
-define('AC_DB_CS','mysql:host=localhost;port=3306;dbname=asteriskcdrdb');
-define('AC_DB_UNAME','freepbx');
-define('AC_DB_UPASS','fpbx');
-define('AC_TIMEOUT',0.75);
-define('AC_RECORD_PATH','https://pbx.v.qsoft.ru/monitor/%Y/%m/%d/#');
-define('AC_TIME_DELTA',4); // hours. Ex. GMT+4 = 4
-
-
-$db_cs=AC_DB_CS;
-$db_u=!strlen(AC_DB_UNAME)?NULL:AC_DB_UNAME;
-$db_p=!strlen(AC_DB_UPASS)?NULL:AC_DB_UPASS;
+$db_cs = AC_DB_CS;
+$db_u = !strlen(AC_DB_UNAME)?NULL:AC_DB_UNAME;
+$db_p = !strlen(AC_DB_UPASS)?NULL:AC_DB_UPASS;
 date_default_timezone_set('UTC');
 
+if (AC_PORT<1) { 
+	die('Please, configure settings first!');
+}
 
-if (AC_PORT<1) die('Please, configure settings first!'); // die if not
 if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
-	//get file. Do not check auth. (uniqueid is rather unique)
 	$p=AC_RECORD_PATH;
-	if (empty($p)) die('Error while getting file from asterisk');
+	if (empty($p)) {
+		die('Error while getting file from asterisk');
+	}
 	try {
+
 		$dbh = new PDO($db_cs, $db_u, $db_p);
-		$sth = $dbh->prepare('SELECT calldate,recordingfile FROM cdr WHERE uniqueid= :uid');
+		$sth = $dbh->prepare('SELECT calldate,recordingfile FROM cdr WHERE uniqueid= :uid LIMIT 1');
 		$sth->bindValue(':uid',strval($_GET['GETFILE']));
 		$sth->execute();
 		$r = $sth->fetch(PDO::FETCH_ASSOC);
-		if ($r===false OR empty($r['recordingfile'])) die('Error while getting file from asterisk');
-		$date=strtotime($r['calldate']);
-		$replace=array();
-		$replace['#']=$r['recordingfile'];
-		$dates=array('d','m','Y','y');
-		foreach ($dates as $d) $replace['%'.$d]=date($d,$date); // not a good idea!
-		$p=str_replace(array_keys($replace),array_values($replace),$p);
-		if (empty($_GET['noredirect'])) header('Location: '.$p);
-		die($p);
+		if (AC_INTEGRATION_TYPE == 'yeastar') { /* Yeastar use old MySQL auth protocol and do no supply always recording name in CDR event*/
+//			$db_month = date('Ym', strtotime($r['calldate']));
+			$arr = explode(".", $_GET['GETFILE']);
+			$db_month = date('Ym', $arr[0]);
+
+			$sql_user = AC_YEASTAR_MYSQL_USER;
+			$sql_pass = AC_YEASTAR_MYSQL_SECRET;
+//			$ssh_cmd = "echo \"SELECT monitorpath FROM asteriskcdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
+			$ssh_cmd = "echo \"SELECT recordpath FROM cdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
+			$r['recordingfile'] = trim(get_ssh_cmd(AC_YEASTAR_SSH, $ssh_cmd));
+		}
+		if ($r===false OR empty($r['recordingfile'])) {
+			header("HTTP/1.0 404 Not Found");
+			die();
+		}
+		if (AC_INTEGRATION_TYPE == 'yeastar') {
+			$r['recordingfile'] = str_replace('.wav_alaw', '.wav', $r['recordingfile']);
+			$r['recordingfile'] = str_replace('/tmp/media/harddisk1', '/ftp_media/harddisk', $r['recordingfile']);
+		}
+
+		$date = strtotime($r['calldate']);
+		$replace = array('#' => $r['recordingfile']);
+		foreach (array('d','m','Y','y') as $d) {
+			$replace['%'.$d] = date($d, $date);
+		}
+		if (AC_INTEGRATION_TYPE == 'grandstream') {
+			$r['recordingfile'] = str_replace('.wav@', '.wav', $r['recordingfile']);
+		}
+		$p=str_replace(array_keys($replace), array_values($replace), $p);
 	} catch (PDOException $e) {
-		die('Error while getting file from asterisk');
+		header("HTTP/1.0 Internal Server Error");
+		die();
+	}
+
+	$ext = pathinfo($r['recordingfile'], PATHINFO_EXTENSION);
+	$encode = true;
+	$redirect = false;
+	$url = parse_url($p);
+
+	if ($_GET['noredirect'] == 'Y') {
+		$url = 'http' . (isset($_SERVER['HTTPS']) ? 's' : '') . '://' . "{$_SERVER['HTTP_HOST']}/{$_SERVER['REQUEST_URI']}";
+		if ($ext != 'mp3') {
+			die(str_replace('noredirect=Y', '', $url));
+		}
+		if ($url['scheme'] != 'http' && $url['scheme'] != 'https') {
+			die(str_replace('noredirect=Y', '', $url));
+		}
+	}
+
+	/* Retrieve file to server */
+	switch ($url['scheme']) {
+		case 'http':
+		case 'https':
+			$redirect = true;
+			if ($ext != 'mp3') { /* retrieve file to encode */
+//				var_dump($p);
+				$tmp_file = get_http_file($p, $r['recordingfile']);
+			}
+			break;
+		case 'ssh':
+		case 'sftp':
+			$tmp_file = get_ssh_file($p);
+			break;
+		case 'ftp':
+			$tmp_file = get_ftp_file($p);
+			break;
+		default:
+			die('Unable to detect URL type');
+	}
+	if (!$redirect && ($tmp_file === false)) {
+		die('Unable to retrieve file');
+	}
+	/* Encode files to mp3 format */
+	switch ($ext) {
+		case 'mp3':
+			$encode_file = $tmp_file;
+			$encode = false;
+			break;
+		case 'gsm':
+			$encode_file = encode_gsm2mp3($tmp_file);
+			break;
+		case 'wav':
+			$encode_file = encode_wav2mp3($tmp_file);
+			break;
+		default:
+			die('Unable to find proper encoder');
+	}
+	if (file_exists($tmp_file)) {
+		unlink($tmp_file);
+	}
+	if ($redirect && !$encode) {
+		if ($_GET['noredirect'] == 'Y') {
+			die($p);
+		}
+		header('Location: '.$p);
+		exit();
+	} else {
+		return_file($encode_file, true);
 	}
 }
 
-
 // filter parameters from _GET
 foreach (array('login','secret','action') as $k){
-	if (empty($_GET['_'.$k])) die('NO_PARAMS');
+	if (empty($_GET['_'.$k])) { 
+		die('NO_PARAMS');
+	}
 	$$k=strval($_GET['_'.$k]);
 }
 // trying to check accacess
@@ -71,256 +140,188 @@ $loginArr=array(
 	'Action'=>'Login',
 	'username'=>$login,
 	'secret'=>$secret,
-//	'Events'=>'off',
+	'Events'=>'off',
 );
 $resp=asterisk_req($loginArr,true);
 // problems? exiting
-if ($resp[0]['response']!=='Success') answer(array('status'=>'error','data'=>$resp[0]));
+
+if ($resp[0]['response']!=='Success') {
+	answer(array('status'=>'error','data'=>$resp[0]));
+}
 
 //auth OK. Lets perform actions
 if ($action==='status'){ // list channels status
 	$params=array( 'action'=>'status');
 	$resp=asterisk_req($params);
-	// report error of any
-	if ($resp[0]['response']!=='Success') answer(array('status'=>'error','data'=>$resp[0]));
-	// first an last chunks are useless
+	if ($resp[0]['response']!=='Success') {
+		answer(array('status'=>'error','data'=>$resp[0]));
+	}
 	unset($resp[end(array_keys($resp))],$resp[0]);
-	// renumber keys for JSON
 	$resp=array_values($resp);
-	// report OK
-	answer(array('status'=>'ok','action'=>$action,'data'=>$resp));
+	foreach($resp as $k => $v) {
+		/* Reduce traffic amount and send only calls, initiating popup */
+		if ($v['state'] != 'Ringing' && $v['channelstatedesc'] != 'Ringing') {
+			unset($resp[$k]);
+			continue;
+		}
+		if (AC_INTEGRATION_TYPE == 'yeastar') {
+			try {
+				$dbh = new PDO($db_cs, $db_u, $db_p);
+				$dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+				$stmt = "SELECT * FROM `dial_log` WHERE `dstuid`=:uid LIMIT 1";
+				$sth = $dbh->prepare($stmt);
+				$sth->bindValue(':uid', $v['uniqueid'] );
+				$sth->execute();
+				$r = $sth->fetchAll(PDO::FETCH_ASSOC);
+				$resp[$k]['connectedlinenum'] = $r[0]['callerid'];
+			} catch (PDOException $e) {
+				answer(array('status'=>'error','data'=>$e->getMessage()),true);
+			}
+		}
+		/* If connectedlinenum is not defined - js error occure in browser */
+		if (!isset($resp[$k]['connectedlinenum'])) {
+			$resp[$k]['connectedlinenum'] = $v['calleridnum'];
+		}
+	}
+	answer(array('status'=>'ok','action'=>$action,'data'=>array_values($resp)));
 
 }elseif ($action==='call'){ // originate a call
+	/* Filter 'to' value */
+	$to = phone_number_filter($_GET['to'], AC_INTEGRATION_AREACODE, AC_INTEGRATION_DIALPLAN);
+	if ($to === false) {
+		answer(array('status'=>'error','data'=>'Not valid phone number'));
+	}
+	$context = AC_INTEGRATION_OUTBOUND_CONTEXT;
+	$from = AC_INTEGRATION_SIPCHANNEL.'/'.intval($_GET['from']);
+	if (AC_INTEGRATION_TYPE == 'freepbx') {
+		/* TODO: Get device from settings */
+		// /DEVICE/101/dial                                  : SIP/101
+		// /AMPUSER/101/device                               : 101
+		$from = AC_INTEGRATION_SIPCHANNEL.'/'.intval($_GET['from']);
+		if (AC_FREEPBX_FOLLOWME) {
+			$from = "Local/".intval($_GET['from'])."@from-internal/n";
+		}
+	}
+	else if (AC_INTEGRATION_TYPE == 'yeastar') {
+		$context = 'DLPN_DialPlan'.intval($_GET['from']);
+		$from = AC_INTEGRATION_SIPCHANNEL.'/'.intval($_GET['from']);
+	}
+	else if (AC_INTEGRATION_TYPE == 'grandstream') {
+		$context = 'from-internal';
+		$from = 'Local/'.intval($_GET['from']).'@from-internal';
+	}
+
+	/* Get device for 'from' */
 	$params=array(
 		'action'=>'Originate',
-		'channel'=>'SIP/'.intval($_GET['from']),
-		'Exten'=>strval($_GET['to']),
-		'Context'=>'from-internal',
-		'priority'=>'2',
+		'channel'=> $from,
+		'Exten'=> $to,
+		'Context'=> $context,
+		'priority'=>'1',
 		'Callerid'=>'"'.strval($_GET['as']).'" <'.intval($_GET['from']).'>',
-		'Async'=>'Yes',
-		// Not Implemented:
-		//'Callernumber'=>'150',
-		//'CallerIDName'=>'155',
+		'Async'=>'Yes'
 	);
+//var_dump($params);
 	$resp=asterisk_req($params,true);
-	if ($resp[0]['response']!=='Success') answer(array('status'=>'error','data'=>$resp[0]));
+	if ($resp[0]['response']!=='Success') {
+		answer(array('status'=>'error','data'=>$resp[0]));
+	} 
 	answer(array('status'=>'ok','action'=>$action,'data'=>$resp[0]));
-
-} elseif ($action==='test_cdr'){ // test if DB connection params are OK.
-	if (!class_exists('PDO')) answer(array('status'=>'error','data'=>'PDO_NOT_INSTALLED')); // we use PDO for accessing mySQL pgSQL sqlite within same algorythm
-	try {
-		$dbh = new PDO($db_cs, $db_u, $db_p);
-	} catch (PDOException $e) {
-		answer(array('status'=>'error','data'=>$e->getMessage()));
-	}
-	answer(array('status'=>'ok','data'=>'connection ok'));
 } elseif ($action==='cdr'){ // fetch call history
 	try {
-		$dbh = new PDO($db_cs, $db_u, $db_p);
-
+		/* Get date and time */
 		foreach (array('date_from','date_to') as $k){
 			$v=doubleval( (!empty($_GET[$k]))?intval($_GET[$k]):0 );
-			if ($v<0) $v=time()-$v;
+			if ($v<0) {
+				$v=time()-$v;
+			}
 			$$k=$v;
 		}
-		if ($date_from<time()-10*24*3600) $date_from=time()-7*24*3600; //retr. not more than 10d before
+		if ($date_from < time()-10*24*3600) {
+			$date_from = time()-7*24*3600; //retr. not more than 10d before
+		}
 		$date_from=($date_from?$date_from+AC_TIME_DELTA*3600:0); //default 01-01-1970
 		$date_to  =($date_to  ?$date_to  +AC_TIME_DELTA*3600:time()+AC_TIME_DELTA*3600);//default now()
-		$sth = $dbh->prepare('SELECT calldate, src,dst,duration,billsec,uniqueid,recordingfile FROM cdr WHERE disposition=\'ANSWERED\' AND billsec>=:minsec AND calldate> :from AND calldate< :to');
-		// BETWEEN is illegal on some bcknds
+
+		if (AC_INTEGRATION_TYPE == 'grandstream') {
+			// https://192.168.254.200:8088/cdrapi?caller=Anonymous&callee=2@,34@,@5&startTime=2013-07-01T00:00:00-06:00&endTime=2013-07-31T23:59:59-06:00
+			// https://192.168.254.200:8088/cdrapi?format=json&caller=5300&minDur=8&maxDur=60
+			$date_from_f = gmdate('Y-m-d\TH:i:s',$date_from);
+			$date_to_f = gmdate('Y-m-d\TH:i:s',$date_to);
+			$url = AC_GRANDSTREAM_API."/cdrapi?format=json&minDur=5&startTime={$date_from_f}&endTime={$date_to_f}";
+			$context = stream_context_create(array(
+				'http' => array(
+				'header'  => "Authorization: Basic " . base64_encode("cdrapi:cdrapi123")
+				)
+			));
+			$data = json_decode(file_get_contents($url, false, $context), true);
+			$dbh = new PDO($db_cs, $db_u, $db_p);
+			$dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+			$cdr_crm = array(); // CDR for send into CRM
+			$cdr_final = array(); // CDR for local storage and later access to call recordings
+			$return_keys = array('calldate', 'src', 'dst', 'duration', 'billsec', 'uniqueid', 'recordingfile');
+			foreach ($data['cdr_root'] as $cdr) {
+				if (isset($cdr['main_cdr'])) {
+					foreach ($cdr as $subcdr) {
+						if (isset($subcdr['recordfiles']) && strlen($subcdr['recordfiles'])) {
+							$cdr_crm[] = $subcdr;
+							break;
+						}
+					}
+					continue;
+				}
+				if (!strlen($cdr['uniqueid'])) {
+					continue;
+				}
+				if (strlen($cdr['src'])<=4 && strlen($cdr['dst']) <=4) {
+					continue;
+				}
+				$cdr_crm[] = $cdr;
+			}
+			$cdr_return = array();
+			foreach ($cdr_crm as $i => $cdr) {
+				$cdr_crm[$i]['calldate'] = $cdr['start'];
+				$cdr_crm[$i]['recordingfile'] = $cdr['recordfiles'];
+
+				$cdr_return[] = array_intersect_key($cdr_crm[$i], array_flip($return_keys));
+				if (!strlen($cdr['recordfiles'])) {
+					continue;
+				}
+				$sth = $dbh->prepare('INSERT IGNORE INTO cdr SET calldate=:calldate, uniqueid= :uid, src=:src, dst=:dst, recordingfile=:rec, 
+					duration=:duration, billsec=:billsec, channel=:channel, dcontext=:dcontext, dstchannel=:dstchannel, disposition=:disp, 
+					lastapp=:lastapp, lastdata=:lastdata');
+				$sth->bindValue(':calldate', $cdr['start']);
+				$sth->bindValue(':uid', $cdr['uniqueid']);
+				$sth->bindValue(':lastapp', $cdr['lastapp']);
+				$sth->bindValue(':lastdata', $cdr['lastdata']);
+				$sth->bindValue(':disp', $cdr['disposition']);
+				$sth->bindValue(':duration', $cdr['duration']);
+				$sth->bindValue(':billsec', $cdr['billsec']);
+				$sth->bindValue(':dcontext', $cdr['dcontext']);
+				$sth->bindValue(':dstchannel', $cdr['dstchannel']);
+				$sth->bindValue(':channel', $cdr['channel']);
+				$sth->bindValue(':src', $cdr['src']);
+				$sth->bindValue(':dst', $cdr['dst']);
+				$sth->bindValue(':rec', $cdr['recordfiles']);
+				$sth->execute();
+			}
+			header("X-REAL_DATE:" . gmdate('Y-m-d H:i:s',$date_from).'@'. gmdate('Y-m-d H:i:s',$date_to));
+			answer(array('status'=>'ok','data' => $cdr_return), true);
+			exit();
+		}
+		$dbh = new PDO($db_cs, $db_u, $db_p);
+		$dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+		$r = get_cdr($dbh, $date_from, $date_to);
+		foreach ($r as $id => $record) {
+			if (AC_INTEGRATION_TYPE == 'yeastar') {
+				if (preg_match("/\d+\((\d+)\)/", $record['dst'], $m)) {
+					$r[$id]['dst'] = $m[1];
+				}
+			}
+		}
 		header("X-REAL_DATE:" . gmdate('Y-m-d H:i:s',$date_from).'@'. gmdate('Y-m-d H:i:s',$date_to));
-		$sth->bindValue(':from', date('Y-m-d H:i:s',$date_from) );
-		$sth->bindValue(':to',	 date('Y-m-d H:i:s',$date_to));
-		$sth->bindValue(':minsec',!empty($_GET['minsec'])?$_GET['minsec']:5,PDO::PARAM_INT);
-		$sth->execute();
-		//$sth->debugDumpParams(); 	var_dump($sth->errorInfo());
-		$r = $sth->fetchAll(PDO::FETCH_ASSOC);
-		foreach ($r as $k=>$v) $r[$k]['calldate']=date('Y-m-d H:i:s',strtotime($v['calldate'])-AC_TIME_DELTA*3600);
 		answer(array('status'=>'ok','data'=>$r),true);
 	} catch (PDOException $e) {
 		answer(array('status'=>'error','data'=>$e->getMessage()),true);
 	}
-} elseif ($action==='pop'){// fill test data. Maybe you will need it. Just comment line below.
-	die();
-	$dbh = new PDO($db_cs, $db_u, $db_p);
-	for ($i=0;$i<(int)$_GET['n'];$i++){
-		$array=array(
-			date('Y-m-d H:i:s',time()-rand(100,7*24*3600)),
-			'Auto <150>', 150,'791612345678','n/a','n/a','n/a','n/a','n/a',999, rand(7,999), 'ANSWERED',3,'',uniqid(),'','',''
-		);
-		$str=array();
-		foreach ($array as  $v) $str[]="'{$v}'";
-		$str=implode(', ',$str);
-		$dbh->query("INSERT INTO cdr VALUES ({$str});");
-	}
 }
-
-/** MakeRequest to asterisk interfacees
- * @param $params -- array of req. params
- * @return array -- response
- */
-function asterisk_req($params,$quick=false){
-	// lets decide if use AJAM or AMI
-	return !defined('AC_PREFIX')?ami_req($params,$quick):ajam_req($params);
-}
-
-/**
- * Shudown function. Gently close the socket
- */
-function asterisk_socket_shutdown(){ami_req(NULL);}
-
-/*** Make request with AMI
- * @param $params -- array of req. params
- * @param bool $quick -- if we need more than action result
- * @return array result of req
- */
-function ami_req($params,$quick=false){
-	static $connection;
-	if ($params===NULL and $connection!==NULL) {
-		// close connection
-		fclose($connection);
-		return;
-	}
-	if ($connection===NULL){
-		$en=$es='';
-		$connection = fsockopen(AC_HOST, AC_PORT, $en, $es, 3);
-		// trying to connect. Return an error on fail
-		if ($connection) register_shutdown_function('asterisk_socket_shutdown');
-		else {$connection=NULL; return array(0=>array('response'=>'error','message'=>'socket_err:'.$en.'/'.$es));}
-	}
-	// building req.
-	$str=array();
-	foreach($params as $k=>$v) $str[]="{$k}: {$v}";
-	$str[]='';
-	$str=implode("\r\n",$str);
-	// writing
-	fwrite($connection,$str."\r\n");
-	// Setting stream timeout
-	$seconds=ceil(AC_TIMEOUT);
-	$ms=round((AC_TIMEOUT-$seconds)*1000000);
-	stream_set_timeout($connection,$seconds,$ms);
-	// reading respomse and parsing it
-	$str= ami_read($connection,$quick);
-	$r=rawman_parse($str);
-	//var_dump($r,$str);
-	return $r;
-}
-/*** Reads data from coinnection
- * @param $connection -- active connection
- * @param bool $quick -- should we wait for timeout or return an answer after getting command status
- * @return string RAW response
- */
-function ami_read($connection,$quick=false){
-	$str='';
-	do {
-		$line = fgets($connection, 4096);
-		$str .= $line;
-		$info = stream_get_meta_data($connection);
-		if ($quick and $line== "\r\n") break;
-	}while ($info['timed_out'] == false );
-	return $str;
-}
-
-/*** Echo`s data
- * @param $array answer data
- * @param bool $no_callback shold we output as JSON or use callback function
- */
-function answer($array,$no_callback=false){
-	header('Content-type: text/javascript;');
-	if (!$no_callback)  echo "asterisk_cb(".json_encode($array).');';
-	else echo json_encode($array);
-	die();
-}
-
-/** Parse RAW response
- * @param $lines RAW response
- * @return array parsed response
- */
-function rawman_parse($lines){
-	$lines=explode("\n",$lines);
-	$messages=array();
-	$message=array();
-
-	foreach ($lines as $l){
-		$l=trim($l);
-		if (empty($l) and count($message)>0){ $messages[]= $message;  $message=array(); continue;}
-		if (empty($l))  continue;
-		if (strpos($l,':')===false)  continue;
-		list($k,$v)=explode(':',$l);
-		$k=strtolower(trim($k));
-		$v=trim($v);
-		if (!isset( $message[$k]))  $message[$k]=$v;
-		elseif (!is_array( $message[$k]))  $message[$k]=array( $message[$k],$v);
-		else  $message[$k][]=$v;
-	}
-	if (count($message)>0) $messages[]= $message;
-	return $messages;
-}
-
-
-/** Make request via AJAM
- * @param $params req. params
- * @return array parsed resp.
- */
-function ajam_req($params){
-	static $cookie;
-	// EveryRequest Ajam sends back a cookir, needed for auth handling
-	if ($cookie===NULL) $cookie='';
-	// make req. and store cookie
-	list($body,$cookie)= rq(AC_PREFIX.'rawman?'.http_build_query($params),$cookie);
-	// parse an answer
-	return rawman_parse($body);
-}
-
-/** make http req. to uri with cookie, parse resp and fetch a new cookie
- * @param $url
- * @param string $cookie
- * @return array  ($body,$newcookie)
- */
-function rq($url,$cookie=''){
-	// get RAW data
-	$r=_rq($url,$cookie);
-	// divide in 2 parts
-	list($headersRaw,$body)=explode("\r\n\r\n",$r,2);
-	// parse headers
-	$headersRaw=explode("\r\n",$headersRaw);
-	$headers=array();
-	foreach ($headersRaw as $h){
-		if (strpos($h,':')===false) continue;
-		list($hname,$hv)=explode(":",$h,2);
-		$headers[strtolower(trim($hname))]=trim($hv);
-	}
-	// fetch cookie
-	if (!empty($headers['set-cookie'])){
-		$listcookies=explode(';',$headers['set-cookie']);
-		foreach ($listcookies as $c){
-			list($k,$v)=explode('=',trim($c),2);
-			if ($k=='mansession_id') $cookie=$v;
-		}
-	}
-
-	return array($body,$cookie);
-}
-
-/**  mare a request to URI and return RAW resp or false on fail
- * @param $url
- * @param $cookie
- * @return bool|string
- */
-function _rq($url,$cookie){
-	$errno=$errstr="";
-	$fp = fsockopen(AC_HOST, AC_PORT, $errno, $errstr, 3);
-	if (!$fp) return false;
-	$out = "GET {$url} HTTP/1.1\r\n";
-	$out .= "Host: ".AC_HOST."\r\n";
-	if (!empty($cookie)) $out.="Cookie: mansession_id={$cookie}\r\n";
-	$out .= "Connection: Close\r\n\r\n";
-	fwrite($fp, $out);
-	$r='';
-	while (!feof($fp)) $r.=fgets($fp);
-	fclose($fp);
-	return $r;
-}
-
-
