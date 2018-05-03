@@ -5,16 +5,15 @@
 Содержимое архива расположить в /opt/iqtek/amocrm
 
 Приложения и файлы настроек:
+```
 ./amocrm.php			# Интеграций с Amocrm по HTTP
-
 ./config
   config.php.sample		# Настройки интеграции
-
 ./contrib
   extensions_amocrm.conf	# Контексты Asterisk для реализации дополнительных функций
   manager_amocrm.conf		# Пример настройки AMI пользователя
-
 ./README.md			# Этот файл
+```
 
 # Amocrm HTTP
 
@@ -42,7 +41,9 @@
 
 ## Пакеты
 
+```
 apt install apache2 libapache2-mod-php5 php5-mysql lame
+```
 
 ## Настройка apache
   - Настроить сертификат SSL в соответствии с инструкцией: https://www.digitalocean.com/community/tutorials/how-to-secure-apache-with-let-s-encrypt-on-centos-7
@@ -51,17 +52,19 @@ apt install apache2 libapache2-mod-php5 php5-mysql lame
 
 Настроим Asterisk:
 
+```
 ln -s ./contrib/manager_amocrm.conf /etc/asterisk/manager_amocrm.conf
 echo \#include manager_amocrm.conf >> /etc/asterisk/manager.conf
 asterisk -rx "manager reload"
+```
 
 Для систем на базе freepbx необходимо создать аналогичные настройки используя веб-интерфейс
 
 ## Настройка интеграции
 
+```
 vi ./config/config.php
-
-В остальном настройка интеграции и проверка работы по инструкции https://voxlink.ru/kb/asterisk-configuration/amocrm-asterisk/
+```
 
 # Настройка БД
 
@@ -78,5 +81,9 @@ ALTER TABLE `cdr` ADD `addtime` TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 UPDATE cdr SET addtime=calldate;
 ```
 
+# Ссылки
+
   * Amocrm manual: http://support.amocrm.ru/hc/ru/articles/207831798-Asterisk
+  * Инструкция по интеграции: https://voxlink.ru/kb/asterisk-configuration/amocrm-asterisk/
+  * https://voxlink.ru/kb/integraciya-s-crm/dobavlenie-zvonkov-v-amoCRM-cherez-API/
 
