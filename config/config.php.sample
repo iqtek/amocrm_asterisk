@@ -14,14 +14,11 @@ define('AC_TIMEOUT',0.75);
 define('AC_RECORD_PATH','https://cdrapi:cdrapipwd@192.168.88.10:8443/recapi?filedir=monitor&filename=#'); /* can be http, https or sftp */
 define('AC_TIME_DELTA', 3); /* hours. Ex. GMT+4 = 4 */
 
-define('AC_AMOCRM_DOMAIN', 'domain');
-define('AC_AMOCRM_ACCOUNT', 'support@iqtek.ru');
-
 define('AC_INTEGRATION_AREACODE', false); /* Area code for local city phone detection. Ex: 495 for Moscow numberx XXX-XX-XX */
 define('AC_INTEGRATION_OUTBOUND_CONTEXT', 'DLPN_DialPlan'); /* Outbound dialing context, DLPN_DialPlan for Yeastar */
 define('AC_INTEGRATION_DIALPLAN', 'national'); /* Dial-out format. national, national-by or e.164 */
 define('AC_INTEGRATION_SIPCHANNEL', 'SIP'); /* SIP or PJSIP */
-define('AC_INTEGRATION_CUSTOM_TYPE', 'grandstream'); /* Integration type in case auto-detect failed. Values: asterisk, freepbx, kerio, yeastar, grandstream */
+define('AC_INTEGRATION_CUSTOM_TYPE', 'grandstream'); /* Integration type in case auto-detect failed. Values: asterisk, freepbx, yeastar, grandstream */
 
 if (file_exists('/etc/freepbx.conf')) {
 	define('AC_INTEGRATION_TYPE', 'freepbx');
@@ -34,6 +31,8 @@ define('AC_YEASTAR_SSH','ssh://root:ys123456@192.168.88.10:8022/'); /* can be ht
 
 /* Grandstream values */
 define('AC_GRANDSTREAM_API','https://192.168.88.10:8443/'); 
+define('AC_GRANDSTREAM_API_USER','cdrapi'); 
+define('AC_GRANDSTREAM_API_SECRET','cdr123'); 
 
 /* FreePBX values */
 define('AC_FREEPBX_FOLLOWME', true); /* Use followme and forward rules on click2call */
