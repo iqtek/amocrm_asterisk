@@ -34,7 +34,9 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 
 			$sql_user = AC_YEASTAR_MYSQL_USER;
 			$sql_pass = AC_YEASTAR_MYSQL_SECRET;
+			/* For S-series */
 //			$ssh_cmd = "echo \"SELECT monitorpath FROM asteriskcdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
+			/* For U-series */
 			$ssh_cmd = "echo \"SELECT recordpath FROM cdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
 			$r['recordingfile'] = trim(get_ssh_cmd(AC_YEASTAR_SSH, $ssh_cmd));
 		}
@@ -44,6 +46,7 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 		}
 		if (AC_INTEGRATION_TYPE == 'yeastar') {
 			$r['recordingfile'] = str_replace('.wav_alaw', '.wav', $r['recordingfile']);
+			/* For U-series */
 			$r['recordingfile'] = str_replace('/tmp/media/harddisk1', '/ftp_media/harddisk', $r['recordingfile']);
 		}
 
@@ -82,7 +85,6 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 		case 'https':
 			$redirect = true;
 			if ($ext != 'mp3') { /* retrieve file to encode */
-//				var_dump($p);
 				$tmp_file = get_http_file($p, $r['recordingfile']);
 			}
 			break;
@@ -251,7 +253,7 @@ if ($action==='status'){ // list channels status
 			$url = AC_GRANDSTREAM_API."/cdrapi?format=json&minDur=5&startTime={$date_from_f}&endTime={$date_to_f}";
 			$context = stream_context_create(array(
 				'http' => array(
-				'header'  => "Authorization: Basic " . base64_encode("cdrapi:cdrapi123")
+				'header'  => "Authorization: Basic " . base64_encode(AC_GRANDSTREAM_API_USER.":".AC_GRANDSTREAM_API_SECRET)
 				)
 			));
 			$data = json_decode(file_get_contents($url, false, $context), true);
