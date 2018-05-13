@@ -167,7 +167,7 @@ if ($action==='status'){ // list channels status
 			continue;
 		}
 		if (AC_INTEGRATION_TYPE == 'yeastar') {
-			try {
+			try { /* S-series */
 				$dbh = new PDO($db_cs, $db_u, $db_p);
 				$dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 				$stmt = "SELECT * FROM `dial_log` WHERE `dstuid`=:uid LIMIT 1";
@@ -179,6 +179,9 @@ if ($action==='status'){ // list channels status
 			} catch (PDOException $e) {
 				answer(array('status'=>'error','data'=>$e->getMessage()),true);
 			}
+			if (isset($resp[$k]['effectiveconnectedlinenum'])) {
+				$resp[$k]['connectedlinenum'] = $resp[$k]['effectiveconnectedlinenum']; /* U-series */
+			}			
 		}
 		/* If connectedlinenum is not defined - js error occure in browser */
 		if (!isset($resp[$k]['connectedlinenum'])) {
