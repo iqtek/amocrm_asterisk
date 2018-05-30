@@ -322,6 +322,9 @@ if ($action==='status'){ // list channels status
 				if (preg_match("/\d+\((\d+)\)/", $record['dst'], $m)) {
 					$r[$id]['dst'] = $m[1];
 				}
+				if (preg_match("/\d+\(from (\d+)\)/", $record['dst'], $m)) { /* S-series */
+					$r[$id]['dst'] = $m[1];
+				}				
 			}
 		}
 		header("X-REAL_DATE:" . gmdate('Y-m-d H:i:s',$date_from).'@'. gmdate('Y-m-d H:i:s',$date_to));
