@@ -16,9 +16,6 @@ function get_cdr($dbh, $date_from, $date_to, $minsec = 5, $blacklist = array()) 
 				$r[$k]['dst'] = $m[1];
 			}
 		}
-		if ($v['recordingfile'] == '') {
-//			unset($r[$k]['uniqueid']);
-		}
 		if (in_array($v['dst'], $blacklist) || in_array($v['src'], $blacklist)) { /* Do not upload calls with particular number */
 			unset($r[$k]);
 			continue;
@@ -30,7 +27,21 @@ function get_cdr($dbh, $date_from, $date_to, $minsec = 5, $blacklist = array()) 
 		unset($r[$k]['dstchannel']);
 		unset($r[$k]['dcontext']);
 	}
-	return array_values($r);
+	return filter_cdr(array_values($r));
+}
+
+/* Send only unique calls to prevent having calls in amocrm loaded twice */
+function filter_cdr($cdr) {
+	$taken = array();
+
+	foreach($cdr as $key => $item) {
+    		if(!in_array($item['uniqueid'], $taken)) {
+        		$taken[] = $item['uniqueid'];
+    		} else {
+        		unset($items[$key]);
+    		}
+	}
+	return $cdr;
 }
 
 function phone_number_filter($phone, $area_code, $format = 'e.164') {
