@@ -38,10 +38,10 @@ function filter_cdr($cdr) {
     		if(!in_array($item['uniqueid'], $taken)) {
         		$taken[] = $item['uniqueid'];
     		} else {
-        		unset($items[$key]);
+        		unset($cdr[$key]);
     		}
 	}
-	return $cdr;
+	return array_values($cdr);
 }
 
 function phone_number_filter($phone, $area_code, $format = 'e.164') {
