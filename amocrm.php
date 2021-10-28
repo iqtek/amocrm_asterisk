@@ -81,6 +81,10 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 
 	/* Retrieve file to server */
 	switch ($url['scheme']) {
+		case 'file':
+			copy($url['path'],'/tmp/'.$r['recordingfile']);
+			$tmp_file = '/tmp/'.$r['recordingfile'];
+			break;
 		case 'http':
 		case 'https':
 			$redirect = true;
