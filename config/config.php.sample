@@ -9,6 +9,7 @@ define('AC_DB_UNAME','root');
 define('AC_DB_UPASS','rootpwd');
 
 define('AC_TIMEOUT',0.75);
+/* Files - file:///var/spool/asterisk/monitor/%Y/%m/%d/# */
 /* Grandstream - https://192.168.88.10:8443/recapi?filedir=monitor&filename=auto-1498160406-79293641441-6501.wav */
 /* Yeastar - ftp://root:ys123456@192.168.88.10/# */
 define('AC_RECORD_PATH','https://cdrapi:cdrapipwd@192.168.88.10:8443/recapi?filedir=monitor&filename=#'); /* can be http, https or sftp */
