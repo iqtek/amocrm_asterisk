@@ -115,6 +115,7 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 			$encode_file = encode_gsm2mp3($tmp_file);
 			break;
 		case 'wav':
+		case 'WAV':			
 			$encode_file = encode_wav2mp3($tmp_file);
 			break;
 		default:
