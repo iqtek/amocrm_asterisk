@@ -100,4 +100,5 @@ UPDATE cdr SET addtime=calldate;
   * Amocrm manual: http://support.amocrm.ru/hc/ru/articles/207831798-Asterisk
   * Инструкция по интеграции: https://voxlink.ru/kb/asterisk-configuration/amocrm-asterisk/
   * https://voxlink.ru/kb/integraciya-s-crm/dobavlenie-zvonkov-v-amoCRM-cherez-API/
+  * Актуальный список IP адресов amocrm: https://www.amocrm.ru/security/iplist.txt
 
