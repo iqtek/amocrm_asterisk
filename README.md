@@ -89,6 +89,7 @@ ALTER TABLE `cdr` ADD `recordingfile` VARCHAR(120) NOT NULL;
 Добавить поле для хранения времени добавления cdr записи:
 ```sql
 ALTER TABLE `cdr` ADD `addtime` TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE `cdr` ADD INDEX (`addtime`);
 ```
 Установить значение поля для старой записи:
 ```sql
