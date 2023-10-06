@@ -35,9 +35,9 @@ if (defined('AC_RECORD_PATH') AND !empty($_GET['GETFILE'])){
 			$sql_user = AC_YEASTAR_MYSQL_USER;
 			$sql_pass = AC_YEASTAR_MYSQL_SECRET;
 			/* For S-series */
-//			$ssh_cmd = "echo \"SELECT monitorpath FROM asteriskcdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
+//			$ssh_cmd = "echo \"SELECT monitorpath FROM asteriskcdr.cdr_{$db_month} WHERE NOT ISNULL(monitorpath) AND uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
 			/* For U-series */
-			$ssh_cmd = "echo \"SELECT recordpath FROM cdr.cdr_{$db_month} WHERE uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
+			$ssh_cmd = "echo \"SELECT recordpath FROM cdr.cdr_{$db_month} WHERE NOT ISNULL(recordpath) AND uniqueid='{$_GET['GETFILE']}' LIMIT 1\"|mysql -s -u {$sql_user} -p{$sql_pass} -h 127.0.0.1";
 			$r['recordingfile'] = trim(get_ssh_cmd(AC_YEASTAR_SSH, $ssh_cmd));
 		}
 		if ($r===false OR empty($r['recordingfile'])) {
